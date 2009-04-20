@@ -133,6 +133,11 @@ static const int highestFD = FD_SETSIZE - 1;
 
 #define MAX_HOOK_RETRIES 42
 
+/* port randomization */
+#define RANDOM_BIND_MAX_TRIES 16
+#define RANDOM_BIND_FIRST IPPORT_HIFIRSTAUTO
+#define RANDOM_BIND_LAST IPPORT_HILASTAUTO
+
 /* Forward. */
 
 static int		get_salen __P((const struct sockaddr *));
@@ -141,13 +146,38 @@ static int		send_dg(res_state, const u_char *, int, u_char *, int *, int *, int,
 static void		Aerror(const res_state, FILE *, const char *, int, const struct sockaddr *, int);
 static void		Perror(const res_state, FILE *, const char *, int);
 static int		sock_eq(struct sockaddr *, struct sockaddr *);
-#ifdef NEED_PSELECT
-static int		pselect(int, void *, void *, void *, struct timespec *, const sigset_t *);
+#ifdef USE_DNS_PSELECT
+static int		dns_pselect(int, void *, void *, void *, struct timespec *, const sigset_t *);
 #endif
 
 static const int niflags = NI_NUMERICHOST | NI_NUMERICSERV;
-static int interrupt_pipe_enabled = 0;
-static pthread_key_t interrupt_pipe_key;
+
+/* interrupt mechanism is shared with res_query.c */
+int interrupt_pipe_enabled = 0;
+pthread_key_t interrupt_pipe_key;
+
+static int
+bind_random(int sock)
+{
+	int i, status;
+	uint16_t src_port;
+	struct sockaddr_in local;
+
+	src_port = 0;
+	status = -1;
+
+	for (i = 0; (i < RANDOM_BIND_MAX_TRIES) && (status < 0); i++)
+	{		
+		/* random port in the range RANDOM_BIND_FIRST to RANDOM_BIND_LAST */
+		src_port = (res_randomid() % (RANDOM_BIND_LAST - RANDOM_BIND_FIRST)) + RANDOM_BIND_FIRST;
+		memset(&local, 0, sizeof(struct sockaddr_in));
+		local.sin_port = htons(src_port);
+
+		status = bind(sock, (struct sockaddr *)&local, sizeof(struct sockaddr_in));
+	}
+
+	return status;
+}
 
 void
 res_delete_interrupt_token(void *token)
@@ -269,7 +299,7 @@ evNowTime()
 	return (evTimeSpec(now));
 }
 
-#ifdef NEED_PSELECT
+#ifdef USE_DNS_PSELECT
 static struct timeval
 evTimeVal(struct timespec ts)
 {
@@ -1155,6 +1185,8 @@ send_dg(res_state statp, const u_char *buf, int buflen, u_char *ans, int *anssiz
 			return DNS_RES_STATUS_SYSTEM_ERROR;
 		}
 
+		bind_random(EXT(statp).nssocks[ns]);
+
 #ifndef CANNOT_CONNECT_DGRAM
 		/*
 		 * On a 4.3BSD+ machine (client and server,
@@ -1294,11 +1326,11 @@ send_dg(res_state statp, const u_char *buf, int buflen, u_char *ans, int *anssiz
 	finish = evAddTime(now, timeout);
 #endif /* __APPLE__ */
 	goto nonow;
- wait:
 
+wait:
 	now = evNowTime();
 
- nonow:
+nonow:
 
 	if (notify_token != -1)
 	{
@@ -1327,7 +1359,11 @@ send_dg(res_state statp, const u_char *buf, int buflen, u_char *ans, int *anssiz
 	if (evCmpTime(finish, now) > 0) timeout = evSubTime(finish, now);
 	else timeout = evConsTime(0, 0);
 
+#ifdef USE_DNS_PSELECT
+	n = dns_pselect(nfds, &dsmask, NULL, NULL, &timeout, NULL);
+#else
 	n = pselect(nfds, &dsmask, NULL, NULL, &timeout, NULL);
+#endif
 	if (n == 0)
 	{
 		Dprint(statp->options & RES_DEBUG, (stdout, ";; timeout\n"));
@@ -1523,10 +1559,9 @@ sock_eq(struct sockaddr *a, struct sockaddr *b)
 	}
 }
 
-#ifdef NEED_PSELECT
-/* XXX needs to move to the porting library. */
+#ifdef USE_DNS_PSELECT
 static int
-pselect(int nfds, void *rfds, void *wfds, void *efds, struct timespec *tsp, const sigset_t *sigmask)
+dns_pselect(int nfds, void *rfds, void *wfds, void *efds, struct timespec *tsp, const sigset_t *sigmask)
 {
 	struct timeval tv, *tvp = NULL;
 	sigset_t sigs;
