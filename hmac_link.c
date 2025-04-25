@@ -1,9 +1,4 @@
-#ifdef HMAC_MD5
-#ifndef __APPLE__
-#ifndef LINT
-static const char rcsid[] = "$Header: /Users/Shared/libresolv_2/libresolv/dst_hmac_link.c,v 1.1 2006/03/01 19:01:36 majka Exp $";
-#endif
-#endif
+/*	$NetBSD: hmac_link.c,v 1.3 2016/03/07 14:35:39 christos Exp $	*/
 
 /*
  * Portions Copyright (c) 1995-1998 by Trusted Information Systems, Inc.
@@ -21,13 +16,17 @@ static const char rcsid[] = "$Header: /Users/Shared/libresolv_2/libresolv/dst_hm
  * NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION
  * WITH THE USE OR PERFORMANCE OF THE SOFTWARE.
  */
+#include <sys/cdefs.h>
+#if 0
+static const char rcsid[] = "Header: /proj/cvs/prod/libbind/dst/hmac_link.c,v 1.8 2007/09/24 17:18:25 each Exp ";
+#else
+__RCSID("$NetBSD: hmac_link.c,v 1.3 2016/03/07 14:35:39 christos Exp $");
+#endif
 
-/* 
+/*%
  * This file contains an implementation of the HMAC-MD5 algorithm.
  */
-#ifndef __APPLE__
 #include "port_before.h"
-#endif
 
 #include <stdio.h>
 #include <unistd.h>
@@ -41,16 +40,14 @@ static const char rcsid[] = "$Header: /Users/Shared/libresolv_2/libresolv/dst_hm
 #include <resolv.h>
 
 #include "dst_internal.h"
-#ifdef USE_MD5
-# include "md5.h"
-# ifndef _MD5_H_
-#  define _MD5_H_ 1	/* make sure we do not include rsaref md5.h file */
-# endif
-#endif
 
-#ifndef __APPLE__
-#include "port_after.h"
+#ifdef __APPLE__
+#include <TargetConditionals.h>
+#if !TARGET_OS_SIMULATOR
+#include <md5.h>
 #endif
+#endif
+#include "port_after.h"
 
 
 #define HMAC_LEN	64
@@ -64,6 +61,7 @@ typedef struct hmackey {
 } HMAC_Key;
 
 
+#if !defined(__APPLE__) || !TARGET_OS_SIMULATOR
 /************************************************************************** 
  * dst_hmac_md5_sign
  *     Call HMAC signing functions to sign a block of data.
@@ -93,6 +91,9 @@ dst_hmac_md5_sign(const int mode, DST_KEY *d_key, void **context,
 	int sign_len = 0;
 	MD5_CTX *ctx = NULL;
 
+	if (d_key == NULL || d_key->dk_KEY_struct == NULL)
+		return (-1);
+
 	if (mode & SIG_MODE_INIT) 
 		ctx = (MD5_CTX *) malloc(sizeof(*ctx));
 	else if (context)
@@ -100,17 +101,18 @@ dst_hmac_md5_sign(const int mode, DST_KEY *d_key, void **context,
 	if (ctx == NULL) 
 		return (-1);
 
-	if (d_key == NULL || d_key->dk_KEY_struct == NULL)
-		return (-1);
 	key = (HMAC_Key *) d_key->dk_KEY_struct;
 
+#ifdef __APPLE__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 	if (mode & SIG_MODE_INIT) {
 		MD5Init(ctx);
 		MD5Update(ctx, key->hk_ipad, HMAC_LEN);
 	}
 
 	if ((mode & SIG_MODE_UPDATE) && (data && len > 0))
-		MD5Update(ctx, data, len);
+		MD5Update(ctx, data, (unsigned int)len);
 
 	if (mode & SIG_MODE_FINAL) {
 		if (signature == NULL || sig_len < MD5_LEN)
@@ -122,6 +124,8 @@ dst_hmac_md5_sign(const int mode, DST_KEY *d_key, void **context,
 		MD5Update(ctx, key->hk_opad, HMAC_LEN);
 		MD5Update(ctx, signature, MD5_LEN);
 		MD5Final(signature, ctx);
+#pragma clang diagnostic pop
+#endif
 		sign_len = MD5_LEN;
 		SAFE_FREE(ctx);
 	}
@@ -132,8 +136,10 @@ dst_hmac_md5_sign(const int mode, DST_KEY *d_key, void **context,
 	}		
 	return (sign_len);
 }
+#endif
 
 
+#if !defined(__APPLE__) || !TARGET_OS_SIMULATOR
 /************************************************************************** 
  * dst_hmac_md5_verify() 
  *     Calls HMAC verification routines.  There are three steps to 
@@ -160,6 +166,9 @@ dst_hmac_md5_verify(const int mode, DST_KEY *d_key, void **context,
 	HMAC_Key *key;
 	MD5_CTX *ctx = NULL;
 
+	if (d_key == NULL || d_key->dk_KEY_struct == NULL)
+		return (-1);
+
 	if (mode & SIG_MODE_INIT) 
 		ctx = (MD5_CTX *) malloc(sizeof(*ctx));
 	else if (context)
@@ -167,16 +176,16 @@ dst_hmac_md5_verify(const int mode, DST_KEY *d_key, void **context,
 	if (ctx == NULL) 
 		return (-1);
 
-	if (d_key == NULL || d_key->dk_KEY_struct == NULL)
-		return (-1);
-
 	key = (HMAC_Key *) d_key->dk_KEY_struct;
+#ifdef __APPLE__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 	if (mode & SIG_MODE_INIT) {
 		MD5Init(ctx);
 		MD5Update(ctx, key->hk_ipad, HMAC_LEN);
 	}
 	if ((mode & SIG_MODE_UPDATE) && (data && len > 0))
-		MD5Update(ctx, data, len);
+		MD5Update(ctx, data, (unsigned int)len);
 
 	if (mode & SIG_MODE_FINAL) {
 		u_char digest[MD5_LEN];
@@ -189,6 +198,8 @@ dst_hmac_md5_verify(const int mode, DST_KEY *d_key, void **context,
 		MD5Update(ctx, key->hk_opad, HMAC_LEN);
 		MD5Update(ctx, digest, MD5_LEN);
 		MD5Final(digest, ctx);
+#pragma clang diagnostic pop
+#endif
 
 		SAFE_FREE(ctx);
 		if (memcmp(digest, signature, MD5_LEN) != 0)
@@ -201,8 +212,10 @@ dst_hmac_md5_verify(const int mode, DST_KEY *d_key, void **context,
 	}		
 	return (0);
 }
+#endif
 
 
+#if !defined(__APPLE__) || !TARGET_OS_SIMULATOR
 /************************************************************************** 
  * dst_buffer_to_hmac_md5
  *     Converts key from raw data to an HMAC Key
@@ -222,6 +235,7 @@ dst_buffer_to_hmac_md5(DST_KEY *dkey, const u_char *key, const int keylen)
 	HMAC_Key *hkey = NULL;
 	MD5_CTX ctx;
 	int local_keylen = keylen;
+	u_char tk[MD5_LEN];
 
 	if (dkey == NULL || key == NULL || keylen < 0)
 		return (-1);
@@ -234,10 +248,14 @@ dst_buffer_to_hmac_md5(DST_KEY *dkey, const u_char *key, const int keylen)
 
 	/* if key is longer than HMAC_LEN bytes reset it to key=MD5(key) */
 	if (keylen > HMAC_LEN) {
-		u_char tk[MD5_LEN];
+#ifdef __APPLE__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 		MD5Init(&ctx);
-		MD5Update(&ctx, key, keylen);
+		MD5Update(&ctx, key, (unsigned int)keylen);
 		MD5Final(tk, &ctx);
+#pragma clang diagnostic pop
+#endif
 		memset((void *) &ctx, 0, sizeof(ctx));
 		key = tk;
 		local_keylen = MD5_LEN;
@@ -255,8 +273,10 @@ dst_buffer_to_hmac_md5(DST_KEY *dkey, const u_char *key, const int keylen)
 	dkey->dk_KEY_struct = (void *) hkey;
 	return (1);
 }
+#endif
 
 
+#ifndef __APPLE__
 /************************************************************************** 
  *  dst_hmac_md5_key_to_file_format
  *	Encodes an HMAC Key into the portable file format.
@@ -272,50 +292,58 @@ dst_buffer_to_hmac_md5(DST_KEY *dkey, const u_char *key, const int keylen)
 
 static int
 dst_hmac_md5_key_to_file_format(const DST_KEY *dkey, char *buff,
-			    const int buff_len)
+			        const int buff_len)
 {
 	char *bp;
-	int len, b_len, i, key_len;
+#define BUF_LEFT (size_t)(buff_len - (bp - buff))
+	int len, key_len;
 	u_char key[HMAC_LEN];
 	HMAC_Key *hkey;
+	static const char keystr[] = "Key: ";
+
+	if (buff == NULL)
+		return -1;	/*%< no output area */
 
 	if (dkey == NULL || dkey->dk_KEY_struct == NULL) 
-		return (0);
-	if (buff == NULL || buff_len <= (int) strlen(key_file_fmt_str))
-		return (-1);	/* no OR not enough space in output area */
+		return 0;
 
-	hkey = (HMAC_Key *) dkey->dk_KEY_struct;
-	memset(buff, 0, buff_len);	/* just in case */
 	/* write file header */
-	sprintf(buff, key_file_fmt_str, KEY_FILE_FORMAT, KEY_HMAC_MD5, "HMAC");
+	hkey = (HMAC_Key *) dkey->dk_KEY_struct;
+	len = snprintf(buff, buff_len, KEY_FILE_FMT_STR, KEY_FILE_FORMAT,
+	    KEY_HMAC_MD5, "HMAC");
+	if (len < 0 || len >= buff_len)
+		return -1; 	/*%< not enough space in output area */
+	bp = buff + len;
+	if (BUF_LEFT < sizeof(keystr))
+		return -1;
 
-	bp = (char *) strchr(buff, '\0');
-	b_len = buff_len - (bp - buff);
+	memcpy(bp, keystr, sizeof(keystr) - 1);
+	bp += sizeof(keystr) - 1;
 
-	memset(key, 0, HMAC_LEN);
-	for (i = 0; i < HMAC_LEN; i++)
-		key[i] = hkey->hk_ipad[i] ^ HMAC_IPAD;
-	for (i = HMAC_LEN - 1; i >= 0; i--)
-		if (key[i] != 0)
+	for (key_len = 0; key_len < HMAC_LEN; key_len++)
+		key[key_len] = hkey->hk_ipad[key_len] ^ HMAC_IPAD;
+	for (key_len = HMAC_LEN - 1; key_len >= 0; key_len--)
+		if (key[key_len] != 0)
 			break;
-	key_len = i + 1;
+	key_len++;
 
-	strcat(bp, "Key: ");
-	bp += strlen("Key: ");
-	b_len = buff_len - (bp - buff);
-
-	len = b64_ntop(key, key_len, bp, b_len);
+	len = b64_ntop(key, key_len, bp, BUF_LEFT);
 	if (len < 0) 
-		return (-1);
+		return -1;
 	bp += len;
+
+	if (BUF_LEFT < 2)
+		return -1;
 	*(bp++) = '\n';
-	*bp = '\0';
-	b_len = buff_len - (bp - buff);
 
-	return (buff_len - b_len);
+	memset(bp, 0, BUF_LEFT);
+
+	return (int)(bp - buff);
 }
+#endif
 
 
+#ifndef __APPLE__
 /************************************************************************** 
  * dst_hmac_md5_key_from_file_format
  *     Converts contents of a key file into an HMAC key. 
@@ -334,9 +362,9 @@ dst_hmac_md5_key_from_file_format(DST_KEY *dkey, const char *buff,
 {
 	const char *p = buff, *eol;
 	u_char key[HMAC_LEN+1];	/* b64_pton needs more than 64 bytes do decode
-							 * it should probably be fixed rather than doing
-							 * this
-							 */
+				 * it should probably be fixed rather than doing
+				 * this
+				 */
 	u_char *tmp;
 	int key_len, len;
 
@@ -353,11 +381,13 @@ dst_hmac_md5_key_from_file_format(DST_KEY *dkey, const char *buff,
 	eol = strchr(p, '\n');
 	if (eol == NULL)
 		return (-4);
-	len = eol - p;
+	len = (int)(eol - p);
 	tmp = malloc(len + 2);
+	if (tmp == NULL)
+		return (-5);
 	memcpy(tmp, p, len);
 	*(tmp + len) = 0x0;
-	key_len = b64_pton((char *)tmp, key, HMAC_LEN+1);	/* see above */
+	key_len = b64_pton((char *)tmp, key, HMAC_LEN+1);	/*%< see above */
 	SAFE_FREE2(tmp, len + 2);
 
 	if (dst_buffer_to_hmac_md5(dkey, key, key_len) < 0) {
@@ -365,8 +395,10 @@ dst_hmac_md5_key_from_file_format(DST_KEY *dkey, const char *buff,
 	}
 	return (0);
 }
+#endif
 
-/*
+#if !defined(__APPLE__) || !TARGET_OS_SIMULATOR
+/*%
  * dst_hmac_md5_to_dns_key() 
  *         function to extract hmac key from DST_KEY structure 
  * intput: 
@@ -394,7 +426,9 @@ dst_hmac_md5_to_dns_key(const DST_KEY *in_key, u_char *out_str,
 		out_str[i] = hkey->hk_ipad[i] ^ HMAC_IPAD;
 	return (i);
 }
+#endif
 
+#ifndef __APPLE__
 /************************************************************************** 
  *  dst_hmac_md5_compare_keys
  *	Compare two keys for equality.
@@ -410,7 +444,9 @@ dst_hmac_md5_compare_keys(const DST_KEY *key1, const DST_KEY *key2)
 	HMAC_Key *hkey2 = (HMAC_Key *) key2->dk_KEY_struct;
 	return memcmp(hkey1->hk_ipad, hkey2->hk_ipad, HMAC_LEN);
 }
+#endif
 
+#if !defined(__APPLE__) || !TARGET_OS_SIMULATOR
 /************************************************************************** 
  * dst_hmac_md5_free_key_structure
  *     Frees all (none) dynamically allocated structures in hkey
@@ -423,8 +459,10 @@ dst_hmac_md5_free_key_structure(void *key)
 	SAFE_FREE(hkey);
 	return (NULL);
 }
+#endif
 
 
+#ifndef __APPLE__
 /*************************************************************************** 
  * dst_hmac_md5_generate_key
  *     Creates a HMAC key of size size with a maximum size of 63 bytes
@@ -433,20 +471,27 @@ dst_hmac_md5_free_key_structure(void *key)
  */
 
 static int
+/*ARGSUSED*/
 dst_hmac_md5_generate_key(DST_KEY *key, const int nothing)
 {
-	(void)key;
-	(void)nothing;
 	return (-1);
 }
+#endif
 
-/*
+/*%
  * dst_hmac_md5_init()  Function to answer set up function pointers for HMAC
  *	   related functions 
  */
 int
-dst_hmac_md5_init()
+#ifdef	SUNW_LIBMD5
+dst_md5_hmac_init(void)
+#else
+dst_hmac_md5_init(void)
+#endif
 {
+#if defined(__APPLE__) && TARGET_OS_SIMULATOR
+	return (0);
+#else
 	if (dst_t_func[KEY_HMAC_MD5] != NULL)
 		return (1);
 	dst_t_func[KEY_HMAC_MD5] = malloc(sizeof(struct dst_func));
@@ -455,21 +500,19 @@ dst_hmac_md5_init()
 	memset(dst_t_func[KEY_HMAC_MD5], 0, sizeof(struct dst_func));
 	dst_t_func[KEY_HMAC_MD5]->sign = dst_hmac_md5_sign;
 	dst_t_func[KEY_HMAC_MD5]->verify = dst_hmac_md5_verify;
+#ifndef __APPLE__
 	dst_t_func[KEY_HMAC_MD5]->compare = dst_hmac_md5_compare_keys;
 	dst_t_func[KEY_HMAC_MD5]->generate = dst_hmac_md5_generate_key;
+#endif
 	dst_t_func[KEY_HMAC_MD5]->destroy = dst_hmac_md5_free_key_structure;
 	dst_t_func[KEY_HMAC_MD5]->to_dns_key = dst_hmac_md5_to_dns_key;
 	dst_t_func[KEY_HMAC_MD5]->from_dns_key = dst_buffer_to_hmac_md5;
+#ifndef __APPLE__
 	dst_t_func[KEY_HMAC_MD5]->to_file_fmt = dst_hmac_md5_key_to_file_format;
 	dst_t_func[KEY_HMAC_MD5]->from_file_fmt = dst_hmac_md5_key_from_file_format;
+#endif
 	return (1);
+#endif
 }
 
-#else 
-#include "dst_internal.h"
-#define dst_hmac_md5_init res_9_dst_hmac_md5_init
-int
-dst_hmac_md5_init(){
-	return (0);
-}
-#endif
+/*! \file */
